@@ -1,0 +1,38 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: refuge-flask-web
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./app:/app/app
+      - ./migrations:/app/migrations
+    env_file:
+      - .env
+    depends_on:
+      - db
+    networks:
+      - refuge-flask-network
+    command: flask run --host=0.0.0.0
+
+  db:
+    image: postgres:16-alpine
+    container_name: refuge-flask-db
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - refuge-flask-network
+
+networks:
+  refuge-flask-network:
+    driver: bridge
+
+volumes:
+  pgdata:
