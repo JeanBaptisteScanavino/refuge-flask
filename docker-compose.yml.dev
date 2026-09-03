@@ -3,16 +3,20 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: production
+      target: development
     container_name: refuge-flask-web
     ports:
       - "5000:5000"
+    volumes:
+      - ./app:/app/app
+      - ./migrations:/app/migrations
     env_file:
       - .env
     depends_on:
       - db
     networks:
       - refuge-flask-network
+      - nginx-proxy-network
     command: flask run --host=0.0.0.0
 
   db:
@@ -30,6 +34,8 @@ services:
 networks:
   refuge-flask-network:
     driver: bridge
+  nginx-proxy-network:
+    external: true
 
 volumes:
   pgdata:
