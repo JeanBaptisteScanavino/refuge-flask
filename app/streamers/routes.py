@@ -36,6 +36,92 @@ def create_streamer():
     return jsonify(streamer.to_dict()), 201
 
 
+@streamers_bp.post("/bulk")
+@login_required
+def create_streamers_bulk():
+    """
+    Bulk create streamers from a list of usernames.
+    
+    Request body:
+    {
+        "usernames": ["username1", "username2", "username3"]
+    }
+    
+    Response:
+    {
+        "created": 2,
+        "failed": 1,
+        "already_exists": 0,
+        "results": [
+            {"username": "username1", "status": "created", "id": 123},
+            {"username": "username2", "status": "error", "message": "Not found on Twitch"},
+            {"username": "username3", "status": "already_exists"}
+        ]
+    }
+    """
+    data = request.get_json(silent=True) or {}
+    usernames = data.get("usernames", [])
+    
+    if not usernames or not isinstance(usernames, list):
+        return jsonify({"error": "usernames list is required"}), 400
+    
+    if len(usernames) > 100:
+        return jsonify({"error": "Maximum 100 streamers per request"}), 400
+    
+    try:
+        twitch_client = build_twitch_client_for_user(current_user)
+    except MissingTwitchCredentialsException as exc:
+        return jsonify({"error": str(exc)}), 400
+    
+    results = []
+    created_count = 0
+    failed_count = 0
+    already_exists_count = 0
+    
+    for username in usernames:
+        username = username.strip()
+        if not username:
+            continue
+        
+        try:
+            streamer = CreateStreamer(username, StreamersRepository(), twitch_client).create()
+            results.append({
+                "username": username,
+                "status": "created",
+                "id": streamer.id,
+                "broadcaster_id": streamer.broadcaster_id
+            })
+            created_count += 1
+        except StreamerAlreadyExistsException:
+            results.append({
+                "username": username,
+                "status": "already_exists"
+            })
+            already_exists_count += 1
+        except StreamersDoesNotExistException as exc:
+            results.append({
+                "username": username,
+                "status": "error",
+                "message": "Not found on Twitch"
+            })
+            failed_count += 1
+        except Exception as exc:
+            results.append({
+                "username": username,
+                "status": "error",
+                "message": str(exc)[:100]
+            })
+            failed_count += 1
+    
+    return jsonify({
+        "created": created_count,
+        "failed": failed_count,
+        "already_exists": already_exists_count,
+        "total": len(results),
+        "results": results
+    }), 201
+
+
 @streamers_bp.get("/<username>")
 @login_required
 def get_streamer_infos(username):
@@ -57,4 +143,3 @@ def get_streamers_list():
         for streamer in streamers
     )
     return markdown_content, 200, {"Content-Type": "text/markdown"}
-

@@ -102,11 +102,51 @@
     .login-container h1 { text-align: center; margin-bottom: 2.5rem; color: #333; font-size: 2.5rem; }
     .login-container .section { box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
     
+    textarea {
+      width: 100%;
+      min-height: 150px;
+      padding: 0.8rem;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      font-family: 'Monaco', 'Courier New', monospace;
+      transition: all 0.3s;
+    }
+    textarea:focus { outline: none; border-color: #667eea; box-shadow: 0 0 0 3px rgba(102,126,234,0.15); }
+    
+    .form-hint { font-size: 0.85rem; color: #666; margin-bottom: 0.8rem; font-style: italic; }
+    .form-hint span { color: #667eea; font-weight: 600; }
+    
+    .bulk-loading { display: none; text-align: center; padding: 1rem; }
+    .bulk-loading.show { display: block; }
+    .bulk-progress { display: flex; align-items: center; gap: 1rem; }
+    .spinner { width: 20px; height: 20px; border: 3px solid #ddd; border-top-color: #667eea; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    
+    .bulk-results { display: none; padding: 1rem; margin-top: 1rem; border-radius: 6px; }
+    .bulk-results.show { display: block; }
+    .bulk-results.success { background: #d4edda; border-left: 4px solid #28a745; color: #155724; }
+    .bulk-results.error { background: #f8d7da; border-left: 4px solid #dc3545; color: #721c24; }
+    .bulk-results.partial { background: #fff3cd; border-left: 4px solid #ffc107; color: #856404; }
+    .bulk-results h3 { margin-bottom: 0.5rem; font-size: 1rem; }
+    .bulk-results ul { list-style: none; margin-top: 0.5rem; }
+    .bulk-results li { font-size: 0.9rem; margin: 0.3rem 0; }
+    .bulk-results li.success::before { content: "✓ "; color: #28a745; font-weight: bold; }
+    .bulk-results li.error::before { content: "✗ "; color: #dc3545; font-weight: bold; }
+    
+    .tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; border-bottom: 2px solid #ddd; }
+    .tab-button { padding: 0.8rem 1.5rem; background: none; border: none; border-bottom: 3px solid transparent; color: #666; cursor: pointer; font-weight: 600; transition: all 0.3s; }
+    .tab-button.active { color: #667eea; border-bottom-color: #667eea; }
+    .tab-button:hover { color: #667eea; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    
     @media (max-width: 768px) {
       .sidebar { width: 100%; height: auto; position: static; }
       .container { flex-direction: column; }
       .main { padding: 1rem; }
       .section { padding: 1.5rem; }
+      textarea { min-height: 100px; }
     }
   </style>
 </head>
@@ -160,13 +200,48 @@
         
         <!-- Create Streamer Section (Top Priority) -->
         <div class="section">
-          <h2>➕ Ajouter un Streamer</h2>
-          <form method="post" action="{{ url_for('main.create_streamer') }}">
-            <div class="form-group">
-              <input type="text" name="username" placeholder="Entrez le nom d'utilisateur Twitch" required>
-              <button type="submit">Ajouter</button>
+          <h2>➕ Ajouter des Streamers</h2>
+          
+          <!-- Tabs -->
+          <div class="tabs">
+            <button class="tab-button active" onclick="switchTab('single')">Un seul</button>
+            <button class="tab-button" onclick="switchTab('bulk')">En masse</button>
+          </div>
+          
+          <!-- Single Streamer Tab -->
+          <div id="single" class="tab-content active">
+            <form method="post" action="{{ url_for('main.create_streamer') }}">
+              <div class="form-group">
+                <input type="text" name="username" placeholder="Entrez le nom d'utilisateur Twitch" required>
+                <button type="submit">Ajouter</button>
+              </div>
+            </form>
+          </div>
+          
+          <!-- Bulk Streamers Tab -->
+          <div id="bulk" class="tab-content">
+            <p class="form-hint">
+              Entrez plusieurs noms de streamers, séparés par des <span>virgules ou des sauts de ligne</span>
+            </p>
+            <form id="bulkForm" onsubmit="submitBulkStreamers(event)">
+              <textarea id="streamerList" name="usernames" placeholder="Exemple: eliacheff, mistermv, couch_lock&#10;Ou un par ligne:&#10;eliacheff&#10;mistermv&#10;couch_lock" required></textarea>
+              <div style="margin-top: 1rem; display: flex; gap: 0.8rem;">
+                <button type="submit">📤 Ajouter tous</button>
+                <button type="button" onclick="clearBulkForm()" style="background: #999;">Effacer</button>
+              </div>
+            </form>
+            
+            <!-- Loading Indicator -->
+            <div id="bulkLoading" class="bulk-loading">
+              <div class="bulk-progress">
+                <div class="spinner"></div>
+                <span>Traitement en cours... <strong id="bulkCount">0</strong> streamers</span>
+              </div>
             </div>
-          </form>
+            
+            <!-- Results -->
+            <div id="bulkResults" class="bulk-results"></div>
+          </div>
         </div>
         
         <!-- Streamers List (Page Information) -->
@@ -217,5 +292,137 @@
       </div>
     </div>
   {% endif %}
+  
+  <script>
+    // Tab switching
+    function switchTab(tabName) {
+      // Hide all tabs
+      document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+      document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+      
+      // Show selected tab
+      document.getElementById(tabName).classList.add('active');
+      event.target.classList.add('active');
+    }
+    
+    // Bulk streamer submission
+    async function submitBulkStreamers(event) {
+      event.preventDefault();
+      
+      const textarea = document.getElementById('streamerList');
+      const input = textarea.value.trim();
+      
+      if (!input) {
+        alert('Veuillez entrer au moins un nom de streamer');
+        return;
+      }
+      
+      // Parse usernames (comma or newline separated)
+      const usernames = input
+        .split(/[,\n]+/)
+        .map(u => u.trim())
+        .filter(u => u.length > 0);
+      
+      if (usernames.length === 0) {
+        alert('Veuillez entrer des noms de streamers valides');
+        return;
+      }
+      
+      // Show loading
+      const loadingDiv = document.getElementById('bulkLoading');
+      const resultsDiv = document.getElementById('bulkResults');
+      const submitBtn = event.target.querySelector('button[type="submit"]');
+      
+      loadingDiv.classList.add('show');
+      resultsDiv.classList.remove('show', 'success', 'error', 'partial');
+      submitBtn.disabled = true;
+      
+      const results = { success: [], errors: [] };
+      
+      // Process each streamer
+      for (let i = 0; i < usernames.length; i++) {
+        const username = usernames[i];
+        document.getElementById('bulkCount').textContent = `${i + 1}/${usernames.length}`;
+        
+        try {
+          const response = await fetch('{{ url_for("streamers.create_streamer") }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: username })
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            results.success.push(`${username}`);
+          } else {
+            const data = await response.json();
+            results.errors.push(`${username}: ${data.error || 'Erreur inconnue'}`);
+          }
+        } catch (error) {
+          results.errors.push(`${username}: ${error.message}`);
+        }
+        
+        // Small delay to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+      
+      // Hide loading
+      loadingDiv.classList.remove('show');
+      submitBtn.disabled = false;
+      
+      // Show results
+      displayBulkResults(results, usernames.length);
+    }
+    
+    function displayBulkResults(results, total) {
+      const resultsDiv = document.getElementById('bulkResults');
+      const successCount = results.success.length;
+      const errorCount = results.errors.length;
+      
+      let resultClass = 'success';
+      let title = '✓ Succès !';
+      
+      if (errorCount > 0 && successCount === 0) {
+        resultClass = 'error';
+        title = '✗ Erreur';
+      } else if (errorCount > 0) {
+        resultClass = 'partial';
+        title = '⚠️ Partiel';
+      }
+      
+      let html = `<h3>${title}</h3>`;
+      html += `<p><strong>${successCount}/${total}</strong> streamers ajoutés avec succès</p>`;
+      
+      if (results.success.length > 0) {
+        html += '<ul>';
+        results.success.forEach(name => {
+          html += `<li class="success">${name}</li>`;
+        });
+        html += '</ul>';
+      }
+      
+      if (results.errors.length > 0) {
+        html += '<ul>';
+        results.errors.forEach(err => {
+          html += `<li class="error">${err}</li>`;
+        });
+        html += '</ul>';
+      }
+      
+      resultsDiv.innerHTML = html;
+      resultsDiv.classList.add('show', resultClass);
+      
+      // Refresh page after 2 seconds if all successful
+      if (errorCount === 0) {
+        setTimeout(() => location.reload(), 2000);
+      }
+    }
+    
+    function clearBulkForm() {
+      document.getElementById('streamerList').value = '';
+      document.getElementById('bulkResults').classList.remove('show');
+      document.getElementById('streamerList').focus();
+    }
+  </script>
 </body>
 </html>
