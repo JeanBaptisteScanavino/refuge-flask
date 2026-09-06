@@ -24,3 +24,11 @@ class MissingTwitchAppCredentialsException(Exception):
 
 class TwitchTokenRefreshException(Exception):
     """Raised when Twitch's OAuth token endpoint fails to return an access token."""
+
+
+class UserDoesNotExistException(Exception):
+    """Raised when a username does not match any stored user."""
+
+
+class APITokenDoesNotExistException(Exception):
+    """Raised when an API token id does not match any stored token."""

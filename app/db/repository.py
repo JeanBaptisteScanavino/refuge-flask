@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import List, Optional
 
 from ..extensions import db
-from .models import Streamer, User
+from .models import APIToken, Streamer, User
 
 
 class AbstractUserRepository(ABC):
@@ -52,3 +52,38 @@ class StreamersRepository(AbstractStreamersRepository):
 
     def find_all(self) -> List[Streamer]:
         return db.session.query(Streamer).order_by(Streamer.username_lower).all()
+
+
+class AbstractAPITokenRepository(ABC):
+    @abstractmethod
+    def save(self, token: APIToken) -> APIToken:
+        pass
+
+    @abstractmethod
+    def find_by_hash(self, token_hash: str) -> Optional[APIToken]:
+        pass
+
+    @abstractmethod
+    def find_by_id(self, token_id: int) -> Optional[APIToken]:
+        pass
+
+    @abstractmethod
+    def find_all(self) -> List[APIToken]:
+        pass
+
+
+class APITokenRepository(AbstractAPITokenRepository):
+    def save(self, token: APIToken) -> APIToken:
+        db.session.add(token)
+        db.session.commit()
+        db.session.refresh(token)
+        return token
+
+    def find_by_hash(self, token_hash: str) -> Optional[APIToken]:
+        return db.session.query(APIToken).filter(APIToken.token_hash == token_hash).first()
+
+    def find_by_id(self, token_id: int) -> Optional[APIToken]:
+        return db.session.get(APIToken, token_id)
+
+    def find_all(self) -> List[APIToken]:
+        return db.session.query(APIToken).order_by(APIToken.created_at).all()

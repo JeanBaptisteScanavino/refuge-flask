@@ -33,6 +33,7 @@ The application uses **Flask-SQLAlchemy** for data persistence, **PostgreSQL 16*
 
 ✅ **Admin Tooling**
 - CLI command for user provisioning: `flask create-user`
+- Long-lived API tokens for programmatic access (create/revoke/list via CLI)
 - Secure credential storage (client_id, client_secret)
 - Database migration management (Alembic)
 
@@ -51,14 +52,16 @@ app/
 ├── config.py             # Configuration (SECRET_KEY, DATABASE_URL, etc.)
 ├── cli.py                # CLI commands (create-user)
 ├── db/
-│   ├── models.py         # SQLAlchemy ORM models (User, Streamer)
+│   ├── models.py         # SQLAlchemy ORM models (User, Streamer, APIToken)
 │   └── repository.py     # Data access layer (abstract + concrete)
 ├── core/
 │   ├── exceptions.py     # Custom exception hierarchy
 │   ├── auth_usecase.py   # Authentication & token refresh logic
+│   ├── api_token_usecase.py  # API token creation & validation
 │   ├── streamers_usecase.py  # Streamer creation
 │   └── infos_usecase.py  # Streamer info lookup
 ├── utils/
+│   ├── auth.py           # JWT/session auth decorator & helpers
 │   └── twitch_client.py  # Twitch API clients (Helix, OAuth, TwitchTracker)
 ├── auth/
 │   └── routes.py         # JSON endpoints (/auth/login, /auth/logout)
@@ -142,6 +145,29 @@ docker compose exec web flask create-user <username> <client-id> <client-secret>
 
 When prompted, enter a secure password for the user.
 
+### 6. API Tokens (Optional)
+
+Generate long-lived, non-expiring API tokens for programmatic access (e.g., Excel/curl). Tokens are stored as SHA-256 hashes in the database and can only be revoked by an admin.
+
+**Create an API token:**
+```bash
+docker compose exec web flask create-api-token <username> "optional-token-name"
+```
+
+✅ The raw token is printed **only once** — save it securely. The token's ID is also shown for later revocation.
+
+**List all API tokens (for a user or admin overview):**
+```bash
+docker compose exec web flask list-api-tokens
+```
+
+**Revoke an API token:**
+```bash
+docker compose exec web flask revoke-api-token <token_id>
+```
+
+Once revoked, the token cannot be used for authentication.
+
 ## API Endpoints
 
 ### Authentication
@@ -166,8 +192,10 @@ When prompted, enter a secure password for the user.
 |--------|----------|------|-------------|
 | POST | `/streamers` | ✓ | Form: Create streamer |
 | POST | `/streamers/` | ✓ | JSON: Create streamer |
-| GET | `/streamers/<username>` | ✓ | Get streamer info (JSON/HTML) |
+| GET | `/streamers/<username>` | ✓* | Get streamer info (session or Bearer token) |
 | GET | `/streamers/all` | ✓ | List all streamers (Markdown) |
+
+*`GET /streamers/<username>` supports both session cookie and `Authorization: Bearer <token>` header
 
 ### Example Requests
 
@@ -198,6 +226,15 @@ curl http://localhost:5000/streamers/all \
   -b "session=<cookie>"
 ```
 
+**Get Streamer Info with API Token (for Excel/curl integration)**
+```bash
+# Set your token (from flask create-api-token output)
+TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+curl http://localhost:5000/streamers/eliacheff \
+  -H "Authorization: Bearer $TOKEN"
+```
+
 ## Database Schema
 
 ### Users Table
@@ -218,6 +255,20 @@ username (VARCHAR)
 username_lower (UNIQUE, VARCHAR)
 broadcaster_id (VARCHAR)
 ```
+
+### API Tokens Table
+```sql
+id (PK)
+user_id (FK users.id, INDEXED)
+token_hash (UNIQUE, VARCHAR, INDEXED)
+name (VARCHAR)
+revoked (BOOLEAN, default False, INDEXED)
+created_at (TIMESTAMP)
+revoked_at (TIMESTAMP, nullable)
+last_used_at (TIMESTAMP, nullable)
+```
+
+API tokens are stored as SHA-256 hashes for security. The raw token is displayed only once at creation time and cannot be recovered. Admin can revoke tokens by ID via the `flask revoke-api-token <id>` CLI command.
 
 ### Database Migrations
 

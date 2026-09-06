@@ -37,3 +37,18 @@ class Streamer(db.Model):
             "username": self.username,
             "broadcaster_id": self.broadcaster_id,
         }
+
+
+class APIToken(db.Model):
+    __tablename__ = "api_tokens"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    token_hash = db.Column(db.String, unique=True, nullable=False, index=True)
+    name = db.Column(db.String, nullable=True)
+    revoked = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    revoked_at = db.Column(db.DateTime, nullable=True)
+    last_used_at = db.Column(db.DateTime, nullable=True)
+
+    user = db.relationship("User", backref="api_tokens")

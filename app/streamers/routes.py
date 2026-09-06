@@ -10,6 +10,7 @@ from ..core.exceptions import (
 from ..core.infos_usecase import GetStreamerInfos
 from ..core.streamers_usecase import CreateStreamer
 from ..db.repository import StreamersRepository
+from ..utils.auth import get_current_user, token_or_login_required
 from ..utils.twitch_client import TwitchTrackerClient, build_twitch_client_for_user
 
 streamers_bp = Blueprint("streamers", __name__, url_prefix="/streamers")
@@ -123,10 +124,10 @@ def create_streamers_bulk():
 
 
 @streamers_bp.get("/<username>")
-@login_required
+@token_or_login_required
 def get_streamer_infos(username):
     try:
-        twitch_client = build_twitch_client_for_user(current_user)
+        twitch_client = build_twitch_client_for_user(get_current_user())
     except MissingTwitchCredentialsException as exc:
         return jsonify({"error": str(exc)}), 400
 
